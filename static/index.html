@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Bus Departures</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+
+    @media (max-width: 640px) {
+      html, body { overflow-y: auto; }
+    }
+
+    body {
+      color: #e8e8e8;
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+    }
+
+    #map {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    #root {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      pointer-events: none;
+    }
+
+    .dashboard {
+      pointer-events: all;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      background: rgba(18, 18, 18, 0.55);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 20px;
+      padding: 24px;
+      scrollbar-width: none;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+    }
+
+    .dashboard::-webkit-scrollbar { display: none; }
+
+    @media (max-width: 640px) {
+      #root {
+        position: relative;
+        inset: auto;
+        display: block;
+        padding: 10px;
+        min-height: 100vh;
+      }
+      .dashboard {
+        max-width: 100%;
+        max-height: none;
+        border-radius: 16px;
+        gap: 14px;
+        padding: 16px;
+      }
+
+      /* Header */
+      .header-stop { font-size: 15px; }
+      .clock { font-size: 12px; }
+
+      /* Weather */
+      .weather { padding: 8px 12px; }
+      .weather-label { font-size: 12px; }
+      .weather-icon { font-size: 18px; }
+
+      /* Section labels — prevent wrapping */
+      .section-label { font-size: 9px; letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      /* Bus rows */
+      .bus-row { padding: 8px 0; gap: 8px; grid-template-columns: 48px 1fr auto; }
+      .bus-badge { width: 40px; height: 40px; border-radius: 8px; }
+      .bus-number { font-size: 20px; }
+      .bus-direction { font-size: 9px; white-space: nowrap; }
+      .bus-destination { font-size: 13px; }
+      .time-minutes { font-size: 26px; }
+      .time-unit { font-size: 11px; }
+      .time-block { min-width: 60px; }
+
+      /* Commute ETA */
+      .commute-header { padding: 8px 12px; }
+      .commute-body { padding: 0 12px 10px; }
+      .eta-col-time { font-size: 24px; }
+      .eta-col-sub { font-size: 10px; }
+    }
+
+    .dashboard { display: flex; flex-direction: column; gap: 24px; }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-left { display: flex; flex-direction: column; gap: 2px; }
+
+    .header-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #3ecf6e;
+      opacity: 0.5;
+    }
+
+    .header-stop {
+      font-size: 18px;
+      font-weight: 600;
+      color: #ffffff;
+      letter-spacing: -0.01em;
+    }
+
+    .clock {
+      font-size: 13px;
+      font-weight: 300;
+      color: #ffffff;
+      letter-spacing: 0.05em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Weather ── */
+    .weather {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .weather-icon { font-size: 22px; line-height: 1; }
+
+    .weather-info { display: flex; flex-direction: column; gap: 1px; }
+
+    .weather-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #ffffff;
+      opacity: 0.85;
+    }
+
+    .weather-temp {
+      font-size: 11px;
+      color: #ffffff;
+      opacity: 0.4;
+      letter-spacing: 0.04em;
+    }
+
+    .weather.rain   { border-color: rgba(100,160,255,0.25); background: rgba(100,160,255,0.06); }
+    .weather.snow   { border-color: rgba(200,230,255,0.3);  background: rgba(200,230,255,0.06); }
+    .weather.storm  { border-color: rgba(255,200,50,0.3);   background: rgba(255,200,50,0.05);  }
+    .weather.sunny  { border-color: rgba(255,210,60,0.25);  background: rgba(255,210,60,0.05);  }
+    .weather.fog    { border-color: rgba(180,180,180,0.2);  background: rgba(180,180,180,0.05); }
+
+    /* ── Section ── */
+    .section { display: flex; flex-direction: column; }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .section-arrow {
+      font-size: 14px;
+      color: #3ecf6e;
+      opacity: 0.7;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #3ecf6e;
+      opacity: 0.55;
+    }
+
+    .section-divider {
+      height: 1px;
+      background: rgba(62, 207, 110, 0.12);
+      margin-bottom: 4px;
+    }
+
+    /* ── Bus row ── */
+    .bus-row {
+      display: grid;
+      grid-template-columns: 64px 1fr auto;
+      align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255,255,255, 0.04);
+      gap: 12px;
+    }
+
+    .bus-row:last-child { border-bottom: none; }
+
+    .bus-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px;
+      height: 52px;
+      border-radius: 10px;
+      background: rgba(62, 207, 110, 0.1);
+      border: 1px solid rgba(62, 207, 110, 0.2);
+    }
+
+    .bus-number {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1;
+      color: #3ecf6e;
+    }
+
+    .bus-info { display: flex; flex-direction: column; gap: 3px; }
+
+    .bus-direction {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #ffffff;
+      opacity: 0.3;
+    }
+
+    .bus-destination {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ffffff;
+      opacity: 0.85;
+      letter-spacing: 0.01em;
+    }
+
+    /* ── Time display ── */
+    .time-block { text-align: right; min-width: 80px; }
+
+    .time-minutes {
+      font-size: 36px;
+      font-weight: 300;
+      line-height: 1;
+      color: #3ecf6e;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .time-unit {
+      font-size: 12px;
+      font-weight: 400;
+      color: #3ecf6e;
+      opacity: 0.55;
+      margin-left: 3px;
+    }
+
+    .time-now {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ff6b6b;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    .time-soon .time-minutes { color: #f0a500; }
+    .time-soon .time-unit    { color: #f0a500; }
+
+    .time-urgent .time-minutes { color: #ff6b6b; }
+    .time-urgent .time-unit    { color: #ff6b6b; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    /* ── Urgency dot on badge ── */
+    .bus-badge.urgent  { border-color: rgba(255,107,107, 0.5); background: rgba(255,107,107,0.08); }
+    .bus-badge.urgent .bus-number { color: #ff6b6b; }
+
+    .bus-badge.soon    { border-color: rgba(240,165,0, 0.5); background: rgba(240,165,0,0.08); }
+    .bus-badge.soon .bus-number { color: #f0a500; }
+
+    /* ── Loading skeleton ── */
+    .loading-row {
+      display: grid;
+      grid-template-columns: 64px 1fr auto;
+      align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      gap: 12px;
+    }
+
+    .skel {
+      background: rgba(62, 207, 110, 0.07);
+      border-radius: 6px;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+
+    .skel-badge { width: 52px; height: 52px; border-radius: 10px; }
+    .skel-text  { height: 14px; width: 60%; }
+    .skel-num   { width: 56px; height: 36px; border-radius: 6px; }
+
+    @keyframes shimmer {
+      0%, 100% { opacity: 0.3; }
+      50%       { opacity: 0.7; }
+    }
+
+    /* ── Commute ETA card ── */
+    .commute-card {
+      border-radius: 10px;
+      background: rgba(62, 207, 110, 0.06);
+      border: 1px solid rgba(62, 207, 110, 0.18);
+      overflow: hidden;
+    }
+
+    .commute-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .commute-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #3ecf6e;
+      opacity: 0.6;
+    }
+
+    .commute-toggle {
+      font-size: 10px;
+      color: #3ecf6e;
+      opacity: 0.5;
+    }
+
+    .commute-body {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      padding: 0 16px 14px;
+    }
+
+    .eta-col-divider {
+      width: 1px;
+      background: rgba(62, 207, 110, 0.15);
+      margin: 0 16px;
+    }
+
+    .eta-col { display: flex; flex-direction: column; gap: 3px; }
+
+    .eta-col-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #ffffff;
+      opacity: 0.3;
+    }
+
+    .eta-col-time {
+      font-size: 32px;
+      font-weight: 300;
+      line-height: 1.1;
+      color: #3ecf6e;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .eta-col-sub {
+      font-size: 11px;
+      color: #ffffff;
+      opacity: 0.35;
+      letter-spacing: 0.02em;
+    }
+
+
+    /* ── Footer ── */
+    .footer {
+      font-size: 11px;
+      font-weight: 300;
+      color: #ffffff;
+      opacity: 0.15;
+      text-align: center;
+      letter-spacing: 0.05em;
+    }
+
+    .error-text {
+      font-size: 13px;
+      color: #ff6b6b;
+      opacity: 0.8;
+      padding: 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function useClock() {
+      const [time, setTime] = useState(() => new Date());
+      useEffect(() => {
+        const id = setInterval(() => setTime(new Date()), 1000);
+        return () => clearInterval(id);
+      }, []);
+      return time;
+    }
+
+    const WEATHER_ICON = {
+      sunny:  "☀️",
+      cloudy: "☁️",
+      fog:    "🌫️",
+      rain:   "🌧️",
+      snow:   "❄️",
+      storm:  "⛈️",
+    };
+
+    function WeatherWidget({ weather }) {
+      if (!weather) return null;
+      const icon = WEATHER_ICON[weather.kind] ?? "🌡️";
+      return (
+        <div className={`weather ${weather.kind}`}>
+          <span className="weather-icon">{icon}</span>
+          <div className="weather-info">
+            <span className="weather-label">{weather.label}</span>
+            <span className="weather-temp">{weather.temp}°C</span>
+          </div>
+        </div>
+      );
+    }
+
+    function urgency(minutes) {
+      if (minutes === null || minutes === undefined) return "normal";
+      if (minutes <= 1) return "urgent";
+      if (minutes <= 4) return "soon";
+      return "normal";
+    }
+
+    function TimeDisplay({ minutes }) {
+      if (minutes === null || minutes === undefined)
+        return <div className="time-block"><span style={{color:"rgba(255,255,255,0.2)",fontSize:20}}>—</span></div>;
+      if (minutes === 0)
+        return <div className="time-block"><span className="time-now">Now</span></div>;
+      const cls = urgency(minutes);
+      return (
+        <div className={`time-block time-${cls}`}>
+          <span className="time-minutes">{minutes}</span>
+          <span className="time-unit">min</span>
+        </div>
+      );
+    }
+
+    function BusRow({ route, data, loading, directionLabel }) {
+      if (loading) {
+        return (
+          <div className="loading-row">
+            <div className="skel skel-badge" />
+            <div className="skel skel-text" />
+            <div className="skel skel-num" />
+          </div>
+        );
+      }
+      const mins = data?.minutes ?? null;
+      const u = urgency(mins);
+      return (
+        <div className="bus-row">
+          <div className={`bus-badge ${u !== "normal" ? u : ""}`}>
+            <span className="bus-number">{route}</span>
+          </div>
+          <div className="bus-info">
+            <span className="bus-direction">{directionLabel}</span>
+            <span className="bus-destination">{data?.destination ?? "—"}</span>
+          </div>
+          <TimeDisplay minutes={mins} />
+        </div>
+      );
+    }
+
+    function Section({ arrow, label, directionLabel, routeData, loading }) {
+      const rows = Object.entries(routeData ?? {})
+        .map(([route, data]) => ({ route, data }))
+        .sort((a, b) => (a.data?.minutes ?? Infinity) - (b.data?.minutes ?? Infinity));
+
+      return (
+        <div className="section">
+          <div className="section-header">
+            <span className="section-arrow">{arrow}</span>
+            <span className="section-label">{label}</span>
+          </div>
+          <div className="section-divider" />
+          {rows.map(r => (
+            <BusRow key={r.route} route={r.route} data={r.data} loading={loading} directionLabel={directionLabel} />
+          ))}
+        </div>
+      );
+    }
+
+    const FIXED_OVERHEAD_MIN = parseInt(window.__COMMUTE_OVERHEAD_MIN__ ?? "43", 10);
+
+    function CommuteEta({ departures, clock, cityStop }) {
+      const [open, setOpen] = useState(() => {
+        try { return localStorage.getItem("commute-eta-open") !== "false"; } catch { return true; }
+      });
+
+      function toggle() {
+        setOpen(v => {
+          const next = !v;
+          try { localStorage.setItem("commute-eta-open", String(next)); } catch {}
+          return next;
+        });
+      }
+
+      const fmt = d => d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
+      const addMin = (base, m) => new Date(base.getTime() + m * 60000);
+
+      const toCityBuses = Object.values(departures?.to_city ?? {}).filter(d => d?.minutes != null);
+      const nextOut = toCityBuses.length
+        ? toCityBuses.reduce((a, b) => a.minutes <= b.minutes ? a : b)
+        : null;
+
+      const officeTime = nextOut ? fmt(addMin(clock, nextOut.minutes + FIXED_OVERHEAD_MIN)) : null;
+      const officeSub  = nextOut ? `bus ${nextOut.route} in ${nextOut.minutes} min + overhead` : null;
+      const homeTime   = fmt(addMin(clock, FIXED_OVERHEAD_MIN));
+      const homeSub    = "transit + overhead";
+
+      if (!officeTime && !homeTime) return null;
+
+      return (
+        <div className="commute-card">
+          <div className="commute-header" onClick={toggle}>
+            <span className="commute-title">Commute ETA</span>
+            <span className="commute-toggle">{open ? "▲" : "▼"}</span>
+          </div>
+          {open && (
+            <div className="commute-body">
+              <div className="eta-col">
+                <span className="eta-col-label">To office</span>
+                <span className="eta-col-time">{officeTime ?? "—"}</span>
+                <span className="eta-col-sub">{officeSub ?? ""}</span>
+              </div>
+              <div className="eta-col-divider" />
+              <div className="eta-col">
+                <span className="eta-col-label">To home</span>
+                <span className="eta-col-time">{homeTime ?? "—"}</span>
+                <span className="eta-col-sub">{homeSub}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function App() {
+      const [cfg, setCfg]           = useState(null);
+      const [departures, setDepartures] = useState(null);
+      const [loading, setLoading]   = useState(true);
+      const [error, setError]       = useState(null);
+      const [lastRefresh, setLastRefresh] = useState(null);
+      const clock = useClock();
+
+      useEffect(() => {
+        fetch("/api/config")
+          .then(r => r.json())
+          .then(c => {
+            setCfg(c);
+            const map = L.map("map", {
+              zoomControl: false,
+              attributionControl: false,
+              dragging: false,
+              touchZoom: false,
+              scrollWheelZoom: false,
+              doubleClickZoom: false,
+              boxZoom: false,
+              keyboard: false,
+            }).setView([c.map_lat, c.map_lon], 14);
+            L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+              maxZoom: 19,
+            }).addTo(map);
+            L.control.attribution({ prefix: false })
+              .addAttribution('&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>')
+              .addTo(map);
+          })
+          .catch(() => setCfg({ home_stop: "My Stop", city_stop: "City Terminal", map_lat: 52.0, map_lon: 4.5 }));
+      }, []);
+
+      async function fetchDepartures() {
+        try {
+          const res  = await fetch("/api/departures");
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          if (json.error) throw new Error(json.error);
+          setDepartures(json);
+          setError(null);
+          setLastRefresh(new Date());
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      useEffect(() => {
+        fetchDepartures();
+        const id = setInterval(fetchDepartures, 30_000);
+        return () => clearInterval(id);
+      }, []);
+
+      const timeStr = clock.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      const homeStop = cfg?.home_stop ?? "My Stop";
+      const cityStop = cfg?.city_stop ?? "City Terminal";
+
+      return (
+        <div className="dashboard">
+          <div className="header">
+            <div className="header-left">
+              <span className="header-title">Live departures</span>
+              <span className="header-stop">{homeStop}</span>
+            </div>
+            <span className="clock">{timeStr}</span>
+          </div>
+
+          {error && <div className="error-text">⚠ {error}</div>}
+
+          <WeatherWidget weather={departures?.weather} />
+
+          <CommuteEta departures={departures} clock={clock} cityStop={cityStop} />
+
+          <Section
+            arrow="↓"
+            label={`Leaving ${cityStop} · to ${homeStop}`}
+            directionLabel={`departing ${cityStop}`}
+            routeData={departures?.to_home}
+            loading={loading}
+          />
+
+          <Section
+            arrow="↑"
+            label={`Leaving ${homeStop} · to ${cityStop}`}
+            directionLabel={`departing ${homeStop}`}
+            routeData={departures?.to_city}
+            loading={loading}
+          />
+
+          <div className="footer">
+            {lastRefresh
+              ? `updated ${lastRefresh.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+              : "loading…"}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

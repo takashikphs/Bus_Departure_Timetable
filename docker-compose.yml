@@ -1,0 +1,12 @@
+services:
+  bus-dashboard:
+    build: .
+    ports:
+      - "8888:8888"
+    env_file:
+      - .env.example
+    environment:
+      NTFY_TOPIC: ""               # your ntfy.sh topic name (leave blank to disable)
+      NOTIFY_AT_MIN: 5             # notify when bus is this many minutes away
+      NOTIFY_COOLDOWN_MIN: 20      # don't re-notify same bus within this window
+    restart: unless-stopped
