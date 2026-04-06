@@ -2,6 +2,8 @@
 
 A self-hosted real-time bus departure dashboard using the Dutch [OVapi](http://v0.ovapi.nl) public transport API.
 
+<img width="1631" height="921" alt="2026-04-06 13_41_39-Desktop - File Explorer" src="https://github.com/user-attachments/assets/93594b1d-1c04-4bb0-b050-ccb657a0dfc2" />
+
 Shows live departure times for two directions from your local stop, local weather, and a commute ETA calculator. Push notifications via [ntfy.sh](https://ntfy.sh) when a bus is close.
 
 ## Features
